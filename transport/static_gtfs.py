@@ -108,8 +108,38 @@ class StaticGTFS:
 
     # API
     def get_stop_by_code(self, stop_code: str) -> Optional[Stop]:
+        """
+        Retrieve a Stop object using its public stop code.
+
+        Many GTFS datasets provide two identifiers for stops:
+        - stop_id: internal GTFS identifier
+        - stop_code: the code visible to passengers (printed on signs, apps, etc.)
+
+        This method uses the pre-built stop_code_index to quickly map a stop_code
+        to its corresponding stop_id, and then returns the associated Stop object.
+
+        Parameters:
+            stop_code (str): The passenger-facing stop code (e.g., "1234").
+
+        Returns:
+            Optional[Stop]: The Stop object if found, otherwise None.
+        """
         stop_id = self.stop_code_index.get(stop_code)
         return self.stops.get(stop_id)
 
     def get_stop_times(self, stop_id: str) -> List[StopTime]:
+        """
+        Retrieve all StopTime entries for a given stop.
+
+        The method uses the stop_times_by_stop index, which groups all StopTime
+        records by stop_id. This allows fast lookup of the schedule for a specific
+        stop without scanning the entire stop_times list.
+
+        Parameters:
+            stop_id (str): The internal GTFS stop identifier.
+
+        Returns:
+            List[StopTime]: A list of StopTime objects for this stop.
+                            Returns an empty list if no data is available.
+        """
         return self.stop_times_by_stop.get(stop_id, [])
