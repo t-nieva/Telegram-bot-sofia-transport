@@ -1,8 +1,11 @@
+import csv
 import urllib.request
 import zipfile
 from pathlib import Path
+from typing import Dict, List, Optional
 
 from constants import GTFS_URL
+from models import Stop, Trip, StopTime, Route
 
 
 class StaticGTFS:
@@ -11,6 +14,25 @@ class StaticGTFS:
         self.data_dir = self.project_root / "data"
         self.zip_path = self.data_dir / "gtfs.zip"
         self.gtfs_path = self.data_dir / "gtfs"
+
+        # Main tables
+        self.stops: Dict[str, Stop] = {}
+        self.routes: Dict[str, Route] = {}
+        self.trips: Dict[str, Trip] = {}
+        self.stop_times: List[StopTime] = []
+
+        # Indexes
+        self.stop_code_index: Dict[str, str] = {}
+        self.stop_times_by_stop: Dict[str, List[StopTime]] = {}
+        self.stop_times_by_trip: Dict[str, List[StopTime]] = {}
+
+    def load(self):
+        self._ensure_gtfs_downloaded()
+        self._load_stops()
+        self._load_routes()
+        self._load_trips()
+        self._load_stop_times()
+        self._build_indexes()
 
     def _ensure_gtfs_downloaded(self):
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -21,3 +43,73 @@ class StaticGTFS:
         if not self.gtfs_path.exists():
             with zipfile.ZipFile(self.zip_path, "r") as zip_ref:
                 zip_ref.extractall(self.gtfs_path)
+
+    # CSV download
+    def _load_stops(self):
+        path = self.gtfs_path / "stops.txt"
+        with open(path, encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                stop = Stop(
+                    stop_id=row["stop_id"],
+                    stop_code=row.get("stop_code"),
+                    name=row["stop_name"],
+                    lat=float(row["stop_lat"]),
+                    lon=float(row["stop_lon"]),
+                )
+                self.stops[stop.stop_id] = stop
+                if stop.stop_code:
+                    self.stop_code_index[stop.stop_code] = stop.stop_id
+
+    def _load_routes(self):
+        path = self.gtfs_path / "routes.txt"
+        with open(path, encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                self.routes[row["route_id"]] = Route(
+                    route_id=row["route_id"],
+                    short_name=row["route_short_name"],
+                    long_name=row["route_long_name"],
+                )
+
+    def _load_trips(self):
+        path = self.gtfs_path / "trips.txt"
+        with open(path, encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                self.trips[row["trip_id"]] = Trip(
+                    trip_id=row["trip_id"],
+                    route_id=row["route_id"],
+                    service_id=row["service_id"],
+                    headsign=row.get("trip_headsign"),
+                )
+
+    def _load_stop_times(self):
+        path = self.gtfs_path / "stop_times.txt"
+        with open(path, encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                st = StopTime(
+                    trip_id=row["trip_id"],
+                    stop_id=row["stop_id"],
+                    arrival=row["arrival_time"],
+                    departure=row["departure_time"],
+                    sequence=int(row["stop_sequence"]),
+                )
+                self.stop_times.append(st)
+
+    def _build_indexes(self):
+        for st in self.stop_times:
+            self.stop_times_by_stop.setdefault(st.stop_id, []).append(st)
+            self.stop_times_by_trip.setdefault(st.trip_id, []).append(st)
+
+        for trip_id in self.stop_times_by_trip:
+            self.stop_times_by_trip[trip_id].sort(key=lambda x: x.sequence)
+
+    # API
+    def get_stop_by_code(self, stop_code: str) -> Optional[Stop]:
+        stop_id = self.stop_code_index.get(stop_code)
+        return self.stops.get(stop_id)
+
+    def get_stop_times(self, stop_id: str) -> List[StopTime]:
+        return self.stop_times_by_stop.get(stop_id, [])
