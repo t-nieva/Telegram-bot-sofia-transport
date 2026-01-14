@@ -3,9 +3,12 @@ import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Dict, List, Optional
+from datetime import datetime, date, time, timedelta
+from zoneinfo import ZoneInfo
 
-from constants import GTFS_URL
-from models import Stop, Trip, StopTime, Route
+from transport.models.static.gtfs_models import Stop, StopTime, Route, Trip
+from transport.models.stop_info import Arrival, StopInfo
+from transport.constants import GTFS_URL
 
 
 class StaticGTFS:
@@ -108,38 +111,55 @@ class StaticGTFS:
 
     # API
     def get_stop_by_code(self, stop_code: str) -> Optional[Stop]:
-        """
-        Retrieve a Stop object using its public stop code.
-
-        Many GTFS datasets provide two identifiers for stops:
-        - stop_id: internal GTFS identifier
-        - stop_code: the code visible to passengers (printed on signs, apps, etc.)
-
-        This method uses the pre-built stop_code_index to quickly map a stop_code
-        to its corresponding stop_id, and then returns the associated Stop object.
-
-        Parameters:
-            stop_code (str): The passenger-facing stop code (e.g., "1234").
-
-        Returns:
-            Optional[Stop]: The Stop object if found, otherwise None.
-        """
         stop_id = self.stop_code_index.get(stop_code)
         return self.stops.get(stop_id)
 
     def get_stop_times(self, stop_id: str) -> List[StopTime]:
-        """
-        Retrieve all StopTime entries for a given stop.
-
-        The method uses the stop_times_by_stop index, which groups all StopTime
-        records by stop_id. This allows fast lookup of the schedule for a specific
-        stop without scanning the entire stop_times list.
-
-        Parameters:
-            stop_id (str): The internal GTFS stop identifier.
-
-        Returns:
-            List[StopTime]: A list of StopTime objects for this stop.
-                            Returns an empty list if no data is available.
-        """
         return self.stop_times_by_stop.get(stop_id, [])
+
+    @staticmethod
+    def _parse_gtfs_time(t: str, d: date, tz=ZoneInfo("Europe/Sofia")) -> datetime:
+        hh, mm, ss = map(int, t.split(":"))
+        base = datetime.combine(d, time(0, 0, 0), tzinfo=tz)
+        return base + timedelta(hours=hh, minutes=mm, seconds=ss)
+
+    def get_stop_info_by_code(self, stop_code: str) -> Optional[StopInfo]:
+        now = datetime.now(ZoneInfo("Europe/Sofia"))
+        arrivals: List[Arrival] = []
+        stop = self.get_stop_by_code(stop_code)
+        if not stop:
+            return None
+
+        stop_times = self.get_stop_times(stop.stop_id)
+        for st in stop_times:
+            arrival_dt = self._parse_gtfs_time(st.arrival, now.date())
+            if arrival_dt < now:
+                continue
+
+            trip = self.trips.get(st.trip_id)
+            if not trip:
+                continue
+
+            route = self.routes.get(trip.route_id)
+            if not route:
+                continue
+
+            minutes_left = int((arrival_dt - now).total_seconds() // 60)
+
+            arrivals.append(
+                Arrival(
+                    route_number=route.short_name,
+                    arrival_time=arrival_dt,
+                    minutes_left=minutes_left,
+                )
+            )
+
+        arrivals.sort(key=lambda a: a.arrival_time)
+        arrivals = arrivals[:5]
+
+        return StopInfo(
+            stop_code=stop.stop_code,
+            stop_name=stop.name,
+            current_time=now,
+            arrivals=arrivals,
+        )
