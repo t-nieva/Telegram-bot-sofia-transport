@@ -1,4 +1,6 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
 from transport.models.stop_info import StopInfo, Arrival
 from transport.constants import SOFIA_TZ
 
@@ -9,30 +11,37 @@ class TransportService:
         self.realtime = realtime_gtfs
 
     def get_stop_info(self, stop_code: str) -> StopInfo:
+        # 1. Получаем остановку
         stop = self.static.get_stop_by_code(stop_code)
         if not stop:
             raise ValueError(f"Stop with code {stop_code} not found")
 
         now = datetime.now(SOFIA_TZ)
 
+        # 2. Получаем stop_times и realtime-индекс
         stop_times = self.static.get_stop_times(stop.stop_id)
         realtime_index = self.realtime.get_realtime_index()
 
         arrivals = []
 
+        # 3. Обрабатываем каждое прибытие
         for st in stop_times:
-            # статическое время (локальное)
-            static_arrival = self.static._parse_gtfs_time(st.arrival, now.date())
+            static_arrival = self.static.parse_gtfs_time(st.arrival, now.date())
 
-            trip = self.static.trips.get(st.trip_id)
-            route = self.static.routes.get(trip.route_id)
+            trip = self.static.get_trip(st.trip_id)
+            if not trip:
+                continue
 
-            # realtime override
+            route = self.static.get_route(trip.route_id)
+            if not route:
+                continue
+
+            # 4. Применяем realtime-обновления
             rt = realtime_index.get((st.trip_id, st.stop_id))
 
             if rt:
                 if rt["arrival_time"]:
-                    arrival_dt = rt["arrival_time"]  # уже локальное
+                    arrival_dt = rt["arrival_time"]  # уже локальное время
                 elif rt["delay"]:
                     arrival_dt = static_arrival + timedelta(seconds=rt["delay"])
                 else:
@@ -40,6 +49,7 @@ class TransportService:
             else:
                 arrival_dt = static_arrival
 
+            # 5. Пропускаем прошедшие
             if arrival_dt < now:
                 continue
 
@@ -53,26 +63,20 @@ class TransportService:
                 )
             )
 
-        # arrivals.sort(key=lambda a: a.arrival_time)
-        # arrivals = arrivals[:5]
-
-        # --- Оставляем только ближайшее прибытие для каждого маршрута ---
+        # 6. Оставляем только ближайшее прибытие для каждого маршрута
         unique_by_route = {}
-
         for a in arrivals:
             if a.route_number not in unique_by_route:
                 unique_by_route[a.route_number] = a
             else:
-                # если уже есть — оставляем более раннее прибытие
                 if a.arrival_time < unique_by_route[a.route_number].arrival_time:
                     unique_by_route[a.route_number] = a
 
-        # превращаем обратно в список
+        # 7. Превращаем обратно в список и сортируем
         arrivals = list(unique_by_route.values())
-
-        # сортируем по времени прибытия
         arrivals.sort(key=lambda a: a.arrival_time)
 
+        # 8. Возвращаем StopInfo
         return StopInfo(
             stop_code=stop.stop_code,
             stop_name=stop.name,

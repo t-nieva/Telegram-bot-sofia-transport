@@ -18,13 +18,11 @@ class StaticGTFS:
         self.zip_path = self.data_dir / "gtfs.zip"
         self.gtfs_path = self.data_dir / "gtfs"
 
-        # Main tables
         self.stops: Dict[str, Stop] = {}
         self.routes: Dict[str, Route] = {}
         self.trips: Dict[str, Trip] = {}
         self.stop_times: List[StopTime] = []
 
-        # Indexes
         self.stop_code_index: Dict[str, str] = {}
         self.stop_times_by_stop: Dict[str, List[StopTime]] = {}
         self.stop_times_by_trip: Dict[str, List[StopTime]] = {}
@@ -47,7 +45,6 @@ class StaticGTFS:
             with zipfile.ZipFile(self.zip_path, "r") as zip_ref:
                 zip_ref.extractall(self.gtfs_path)
 
-    # CSV download
     def _load_stops(self):
         path = self.gtfs_path / "stops.txt"
         with open(path, encoding="utf-8") as f:
@@ -117,49 +114,14 @@ class StaticGTFS:
     def get_stop_times(self, stop_id: str) -> List[StopTime]:
         return self.stop_times_by_stop.get(stop_id, [])
 
+    def get_trip(self, trip_id: str) -> Optional[Trip]:
+        return self.trips.get(trip_id)
+
+    def get_route(self, route_id: str) -> Optional[Route]:
+        return self.routes.get(route_id)
+
     @staticmethod
-    def _parse_gtfs_time(t: str, d: date, tz=ZoneInfo("Europe/Sofia")) -> datetime:
+    def parse_gtfs_time(t: str, d: date, tz=ZoneInfo("Europe/Sofia")) -> datetime:
         hh, mm, ss = map(int, t.split(":"))
         base = datetime.combine(d, time(0, 0, 0), tzinfo=tz)
         return base + timedelta(hours=hh, minutes=mm, seconds=ss)
-
-    def get_stop_info_by_code(self, stop_code: str) -> Optional[StopInfo]:
-        now = datetime.now(ZoneInfo("Europe/Sofia"))
-        arrivals: List[Arrival] = []
-        stop = self.get_stop_by_code(stop_code)
-        if not stop:
-            return None
-
-        stop_times = self.get_stop_times(stop.stop_id)
-        for st in stop_times:
-            arrival_dt = self._parse_gtfs_time(st.arrival, now.date())
-            if arrival_dt < now:
-                continue
-
-            trip = self.trips.get(st.trip_id)
-            if not trip:
-                continue
-
-            route = self.routes.get(trip.route_id)
-            if not route:
-                continue
-
-            minutes_left = int((arrival_dt - now).total_seconds() // 60)
-
-            arrivals.append(
-                Arrival(
-                    route_number=route.short_name,
-                    arrival_time=arrival_dt,
-                    minutes_left=minutes_left,
-                )
-            )
-
-        arrivals.sort(key=lambda a: a.arrival_time)
-        arrivals = arrivals[:5]
-
-        return StopInfo(
-            stop_code=stop.stop_code,
-            stop_name=stop.name,
-            current_time=now,
-            arrivals=arrivals,
-        )
