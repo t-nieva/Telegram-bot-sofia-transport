@@ -22,6 +22,7 @@ class StaticGTFS:
         self.routes: Dict[str, Route] = {}
         self.trips: Dict[str, Trip] = {}
         self.stop_times: List[StopTime] = []
+        self.calendar_dates: Dict[str, Dict[date, int]] = {}
 
         self.stop_code_index: Dict[str, str] = {}
         self.stop_times_by_stop: Dict[str, List[StopTime]] = {}
@@ -33,6 +34,7 @@ class StaticGTFS:
         self._load_routes()
         self._load_trips()
         self._load_stop_times()
+        self._load_calendar_dates()
         self._build_indexes()
 
     def _ensure_gtfs_downloaded(self):
@@ -98,6 +100,20 @@ class StaticGTFS:
                 )
                 self.stop_times.append(st)
 
+    def _load_calendar_dates(self):
+        path = self.gtfs_path / "calendar_dates.txt"
+        if not path.exists():
+            return
+
+        with open(path, encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                service_id = row["service_id"]
+                d = datetime.strptime(row["date"], "%Y%m%d").date()
+                exception_type = int(row["exception_type"])
+
+                self.calendar_dates.setdefault(service_id, {})[d] = exception_type
+
     def _build_indexes(self):
         for st in self.stop_times:
             self.stop_times_by_stop.setdefault(st.stop_id, []).append(st)
@@ -125,3 +141,14 @@ class StaticGTFS:
         hh, mm, ss = map(int, t.split(":"))
         base = datetime.combine(d, time(0, 0, 0), tzinfo=tz)
         return base + timedelta(hours=hh, minutes=mm, seconds=ss)
+
+    def is_service_active(self, service_id: str, d: date) -> bool:
+        dates = self.calendar_dates.get(service_id)
+        if not dates:
+            return False
+
+        exception = dates.get(d)
+        if exception is None:
+            return False
+
+        return exception == 1
