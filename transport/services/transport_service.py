@@ -32,6 +32,9 @@ class TransportService:
             if not trip:
                 continue
 
+            if not self.static.is_service_active(trip.service_id, now.date()):
+                continue
+
             route = self.static.get_route(trip.route_id)
             if not route:
                 continue

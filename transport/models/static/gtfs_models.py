@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Optional
+from datetime import date
 
 
 @dataclass
@@ -33,3 +34,10 @@ class Trip:
     route_id: str
     service_id: str
     headsign: Optional[str]
+
+
+@dataclass
+class CalendarDate:
+    service_id: str
+    date: date
+    exception_type: int  # 1 = added, 2 = removed
