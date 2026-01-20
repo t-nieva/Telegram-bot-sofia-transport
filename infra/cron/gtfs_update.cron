@@ -1,0 +1,1 @@
+0 3 * * * /home/lika/Projects/Telegram-bot-sofia-transport/scripts/run_gtfs_update.sh
