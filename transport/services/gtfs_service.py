@@ -2,6 +2,7 @@ from pathlib import Path
 from transport.static_gtfc.downloader import GTFSDownloader
 from transport.static_gtfc.parser import GTFSParser
 from transport.static_gtfc.validator import GTFSValidator
+from transport.static_gtfc.importer import GTFSImporter
 from transport.constants import GTFS_URL
 
 
@@ -29,6 +30,10 @@ class GTFSService:
         if not validator.validate():
             return False
 
-
-res = GTFSService()
-res.update()
+        # 4. Import into DB
+        importer = GTFSImporter(extract_dir=self.gtfs_path)
+        if not importer.import_data():
+            print("GTFS import failed")
+            return False
+        print("GTFS update completed successfully")
+        return True
